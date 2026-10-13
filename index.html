@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Floorplan Studio</title>
+  <meta name="description" content="Draw house floor plans in your browser with walls, doors, windows, stairs and fixtures. Export to PNG, JPEG or PDF.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M3 3h26v26H3z' fill='none' stroke='%23222' stroke-width='4'/%3E%3Cpath d='M16 3v14M3 17h8' stroke='%23222' stroke-width='3'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M3 3h26v26H3z" fill="none" stroke="currentColor" stroke-width="3.5"/><path d="M16 3v14M3 17h8" stroke="currentColor" stroke-width="2.5"/><path d="M16 29a10 10 0 0 0-10-10" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>
+      <span>Floorplan Studio</span>
+    </div>
+    <div class="actions">
+      <button data-action="new" title="Start a blank plan">New</button>
+      <button data-action="open" title="Open a saved .json plan">Open</button>
+      <button data-action="save" title="Download plan as .json">Save</button>
+      <button data-action="sample" title="Load the sample house">Sample</button>
+      <span class="sep"></span>
+      <button data-action="undo" title="Undo (Ctrl/⌘+Z)">↶ Undo</button>
+      <button data-action="redo" title="Redo (Ctrl/⌘+Shift+Z)">↷ Redo</button>
+      <span class="sep"></span>
+      <button data-action="export" class="primary" title="Export PNG, JPEG or PDF">Export</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <aside class="tools" aria-label="Tools">
+      <div class="tool-grid" id="tool-buttons"></div>
+      <div class="tool-options" id="tool-options"></div>
+    </aside>
+
+    <section class="stage" id="stage">
+      <svg id="canvas" tabindex="0" aria-label="Floor plan canvas">
+        <g id="viewport">
+          <g id="grid"></g>
+          <g id="drawing"></g>
+          <g id="overlay"></g>
+        </g>
+      </svg>
+      <div id="hud" class="hud" hidden></div>
+      <div class="zoom">
+        <button data-action="zoom-out" title="Zoom out">−</button>
+        <span id="zoom-label">100%</span>
+        <button data-action="zoom-in" title="Zoom in">+</button>
+        <button data-action="fit" title="Zoom to fit (0)">Fit</button>
+      </div>
+    </section>
+
+    <aside class="props" id="props" aria-label="Properties"></aside>
+  </main>
+
+  <footer class="status"><span id="status-hint"></span><span id="status-pos"></span></footer>
+
+  <dialog id="export-dialog">
+    <form method="dialog" id="export-form">
+      <h2>Export plan</h2>
+      <label class="row">Format
+        <select name="format">
+          <option value="png">PNG image</option>
+          <option value="jpeg">JPEG image</option>
+          <option value="pdf">PDF document</option>
+        </select>
+      </label>
+      <div data-show="png jpeg">
+        <label class="row">Resolution
+          <select name="pxPerIn">
+            <option value="4">Standard (48 px/ft)</option>
+            <option value="8" selected>High (96 px/ft)</option>
+            <option value="16">Print (192 px/ft)</option>
+          </select>
+        </label>
+      </div>
+      <div data-show="pdf">
+        <label class="row">Page size
+          <select name="pageSize">
+            <option value="letter">Letter (8.5×11")</option>
+            <option value="legal">Legal (8.5×14")</option>
+            <option value="tabloid">Tabloid (11×17")</option>
+            <option value="a4">A4</option>
+            <option value="a3">A3</option>
+          </select>
+        </label>
+        <label class="row">Orientation
+          <select name="orientation">
+            <option value="auto">Auto</option>
+            <option value="portrait">Portrait</option>
+            <option value="landscape">Landscape</option>
+          </select>
+        </label>
+        <label class="row">Scale
+          <select name="pdfScale"></select>
+        </label>
+      </div>
+      <fieldset>
+        <legend>Include</legend>
+        <label><input type="checkbox" name="title" checked> Title</label>
+        <label><input type="checkbox" name="scaleBar" checked> Scale bar</label>
+        <label><input type="checkbox" name="north" checked> North arrow</label>
+      </fieldset>
+      <p class="warn" id="export-warning" hidden></p>
+      <div class="dialog-actions">
+        <button value="cancel" formnovalidate>Cancel</button>
+        <button value="ok" class="primary" id="export-go">Download</button>
+      </div>
+    </form>
+  </dialog>
+
+  <input type="file" id="file-input" accept=".json,application/json" hidden>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
