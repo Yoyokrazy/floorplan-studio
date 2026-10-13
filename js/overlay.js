@@ -127,6 +127,14 @@ export function renderOverlay() {
     if (it) parts.push(outlineFor(it, '#93b4f5', 1.5));
   }
   const sel = S.selectedId && byId(S.selectedId);
+  for (const id of S.multi) {
+    const it = byId(id);
+    if (it) parts.push(outlineFor(it, SEL, 2));
+  }
+  if (S.drag && S.drag.kind === 'marquee') {
+    const { start: a, end: b } = S.drag;
+    parts.push(`<rect x="${n2(Math.min(a.x, b.x))}" y="${n2(Math.min(a.y, b.y))}" width="${n2(Math.abs(b.x - a.x))}" height="${n2(Math.abs(b.y - a.y))}" fill="${SEL}" fill-opacity=".07" stroke="${SEL}" stroke-dasharray="4 3" ${NS}/>`);
+  }
   if (sel) {
     parts.push(outlineFor(sel, SEL, 2), handlesFor(sel));
     if (sel.type === 'door' || sel.type === 'window') {

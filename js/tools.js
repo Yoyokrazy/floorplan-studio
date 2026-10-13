@@ -1,8 +1,8 @@
 import {
   S, uid, byId, walls, units, checkpoint, pushUndo, snapPoint, snapAngle, objPoint, grid, endsAt, setEnd,
-  clampOpenings, moveWallEnd, hitTest,
+  clampOpenings, moveWallEnd, hitTest, selectedIds, setSelection, groupConnected, translateGroup,
 } from './state.js';
-import { dist, distToSeg, wallFrame, toLocal, clamp } from './geometry.js';
+import { dist, distToSeg, wallFrame, toLocal, fromLocal, clamp } from './geometry.js';
 import { formatLength, parseLength, parseSize } from './units.js';
 import { openingSpan, dimGeometry } from './render.js';
 import { SYMBOLS } from './symbols.js';
@@ -26,10 +26,28 @@ export function startPan(e, p) {
 }
 
 // ---------- select tool ----------
+function itemInRect(it, r) {
+  const inR = (x, y) => x >= r.x0 && x <= r.x1 && y >= r.y0 && y <= r.y1;
+  if (it.type === 'wall' || it.type === 'dim') return inR(it.x1, it.y1) && inR(it.x2, it.y2);
+  if (it.type === 'door' || it.type === 'window') {
+    const w = byId(it.wallId);
+    if (!w) return false;
+    const { f, s0, s1 } = openingSpan(it, w);
+    const c = fromLocal(f, (s0 + s1) / 2, 0);
+    return inR(c.x, c.y);
+  }
+  return inR(it.x, it.y);
+}
+
+export function marqueeRect(d) {
+  return { x0: Math.min(d.start.x, d.end.x), y0: Math.min(d.start.y, d.end.y), x1: Math.max(d.start.x, d.end.x), y1: Math.max(d.start.y, d.end.y) };
+}
+
 export function selectDown(e, p) {
   const before = JSON.stringify(S.doc);
-  const sel = S.selectedId && byId(S.selectedId);
-  if (sel && (sel.type === 'wall' || sel.type === 'dim')) {
+  const additive = e.shiftKey || e.metaKey || e.ctrlKey;
+  const sel = !S.multi.length && S.selectedId && byId(S.selectedId);
+  if (!additive && sel && (sel.type === 'wall' || sel.type === 'dim')) {
     const r = 8 / S.view.zoom;
     for (const end of [1, 2]) {
       const q = { x: sel[`x${end}`], y: sel[`y${end}`] };
@@ -43,12 +61,27 @@ export function selectDown(e, p) {
   }
   const hit = hitTest(p);
   if (!hit) {
-    S.selectedId = null;
+    if (!additive) setSelection([]);
     ctx.changedSelection();
-    startPan(e, p);
+    S.drag = { kind: 'marquee', start: p, end: p, additive, base: selectedIds() };
+    capture(e);
     return;
   }
-  S.selectedId = hit.id;
+  if (additive) {
+    const ids = selectedIds();
+    const i = ids.indexOf(hit.id);
+    if (i >= 0) ids.splice(i, 1); else ids.push(hit.id);
+    setSelection(ids);
+    ctx.changedSelection();
+    return;
+  }
+  if (S.multi.includes(hit.id)) {
+    const ids = [...S.multi];
+    S.drag = { kind: 'group', before, ss: p, moved: false, start: p, orig: ids.map((id) => ({ ...byId(id) })), connected: groupConnected(ids) };
+    capture(e);
+    return;
+  }
+  setSelection([hit.id]);
   ctx.changedSelection();
   const base = { id: hit.id, before, ss: p, moved: false };
   if (hit.type === 'door' || hit.type === 'window') {
@@ -86,7 +119,20 @@ export function dragMove(p) {
     renderOverlay();
     return;
   }
+  if (d.kind === 'marquee') {
+    d.end = p;
+    renderOverlay();
+    return;
+  }
   if (!beginMove(p)) return;
+  if (d.kind === 'group') {
+    let dx = p.x - d.start.x, dy = p.y - d.start.y;
+    if (!S.keys.shift) { dx = grid(dx); dy = grid(dy); }
+    translateGroup(d.orig, d.connected, dx, dy);
+    setHud(`Δ ${fmt(dx)}, ${fmt(dy)}`);
+    ctx.redraw();
+    return;
+  }
   const it = byId(d.id);
   if (!it) return;
   switch (d.kind) {
@@ -145,6 +191,15 @@ export function dragEnd() {
   if (d.kind === 'room') {
     if (d.end) createRoom(d.start, d.end);
     setHud('');
+    return;
+  }
+  if (d.kind === 'marquee') {
+    if (Math.hypot(d.end.sx - d.start.sx, d.end.sy - d.start.sy) >= 4) {
+      const r = marqueeRect(d);
+      const picked = S.doc.items.filter((it) => itemInRect(it, r)).map((it) => it.id);
+      setSelection(d.additive ? [...new Set([...d.base, ...picked])] : picked);
+    }
+    ctx.changedSelection();
     return;
   }
   if (d.moved) {
@@ -249,7 +304,7 @@ export function openingClick(p) {
   checkpoint();
   const item = { id: uid(), ...pr.op };
   S.doc.items.push(item);
-  S.selectedId = item.id;
+  setSelection([item.id]);
   ctx.changed();
 }
 
@@ -259,7 +314,7 @@ export function placeStairs(p) {
   checkpoint();
   const item = { id: uid(), type: 'stairs', x: c.x, y: c.y, w: 36, l: 144, steps: 13, rot: S.ts.rot || 0, dir: 'up', breakLine: false };
   S.doc.items.push(item);
-  S.selectedId = item.id;
+  setSelection([item.id]);
   ctx.setTool('select');
   ctx.changed();
 }
@@ -270,7 +325,7 @@ export function placeSymbol(p) {
   checkpoint();
   const item = { id: uid(), type: 'symbol', kind: S.toolOpts.symbol, x: c.x, y: c.y, w: def.w, h: def.h, rot: S.ts.rot || 0 };
   S.doc.items.push(item);
-  S.selectedId = item.id;
+  setSelection([item.id]);
   ctx.changed();
 }
 
@@ -279,7 +334,7 @@ export function placeLabel(p) {
   checkpoint();
   const item = { id: uid(), type: 'label', x: c.x, y: c.y, text: 'ROOM', size: 11, rot: 0 };
   S.doc.items.push(item);
-  S.selectedId = item.id;
+  setSelection([item.id]);
   ctx.setTool('select');
   ctx.changed();
   const ta = document.getElementById('label-text');

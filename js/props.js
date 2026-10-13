@@ -65,9 +65,9 @@ function rotationField(it) {
   ];
 }
 
-function commonActions(it) {
+function commonActions() {
   return h('div', { class: 'btn-row' },
-    it.type !== 'wall' ? button('Duplicate', () => api.duplicate()) : null,
+    button('Duplicate', () => api.duplicate()),
     button('Delete', () => api.deleteSelected(), 'danger'));
 }
 
@@ -196,6 +196,9 @@ function settingsProps() {
       ['Q / E', 'Rotate · flip door'],
       ['Del', 'Delete selected'],
       ['Arrows', 'Nudge selected'],
+      ['⇧/⌘ click', 'Add to selection'],
+      ['Drag empty', 'Box-select'],
+      ['⌘/Ctrl A', 'Select all'],
       ['⌘/Ctrl Z', 'Undo (⇧ to redo)'],
       ['⌘/Ctrl D', 'Duplicate'],
       ['Space+drag', 'Pan'],
@@ -205,12 +208,20 @@ function settingsProps() {
     h('h3', {}, 'Reset'),
     h('div', { class: 'btn-row' }, button('Clear everything', () => {
       if (S.doc.items.length && !confirm('Remove everything from this plan? (You can undo.)')) return;
-      mutate(() => { S.doc.items = []; S.selectedId = null; });
+      mutate(() => { S.doc.items = []; S.selectedId = null; S.multi = []; });
     }, 'danger')),
   ];
 }
 
 export function renderProps() {
+  if (S.multi.length) {
+    els.props.replaceChildren(
+      h('h3', {}, `${S.multi.length} items selected`),
+      hint('Drag any selected item to move the group. Walls attached to the selection stretch to follow. Arrow keys nudge, <kbd>Del</kbd> deletes, <kbd>⌘/Ctrl D</kbd> duplicates.'),
+      h('div', { class: 'btn-row' }, button('Duplicate', () => api.duplicate()), button('Delete', () => api.deleteSelected(), 'danger')),
+    );
+    return;
+  }
   const it = S.selectedId && byId(S.selectedId);
   let content;
   if (!it) content = settingsProps();

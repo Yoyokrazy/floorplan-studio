@@ -1,6 +1,6 @@
 import {
   S, byId, uid, loadDoc, freshDoc, normalizeDoc, scheduleSave, checkpoint, deleteItem, clampOpenings,
-  hitTest, snapPoint, objPoint, endsAt, setEnd,
+  hitTest, snapPoint, objPoint, selectedIds, setSelection, groupConnected, translateGroup,
 } from './state.js';
 import { els } from './dom.js';
 import { renderDrawing } from './render.js';
@@ -16,7 +16,7 @@ const ICON = (body) => `<svg viewBox="0 0 24 24" aria-hidden="true">${body}</svg
 const sc = 'stroke="currentColor"';
 const TOOLS = [
   { id: 'select', label: 'Select', key: 'v', icon: '<path d="M6 3l13 8.5-5.6 1.4 3.3 6.6-2.4 1.2-3.3-6.6L6 18z" fill="currentColor"/>',
-    help: 'Click to select. Drag to move. Drag empty space to pan. Drag a wall\'s round handles to reshape it.' },
+    help: 'Click to select; <kbd>Shift</kbd>/<kbd>⌘</kbd>-click to add. Drag empty space to box-select (e.g. a whole room). Drag to move. Pan with two-finger scroll, right-drag or <kbd>Space</kbd>+drag.' },
   { id: 'wall', label: 'Wall', key: 'w', icon: `<path d="M4 21V5h16" fill="none" ${sc} stroke-width="4"/>`,
     help: 'Click to start, click to add corners. While drawing, <b>type a length</b> (e.g. <kbd>12\'6"</kbd>) and press <kbd>Enter</kbd>. Angles snap to 15° (hold <kbd>Shift</kbd> for free). Click the start point, press <kbd>Esc</kbd>, double-click or right-click to finish.' },
   { id: 'room', label: 'Room', key: 'r', icon: `<rect x="4" y="5" width="16" height="14" fill="none" ${sc} stroke-width="3"/>`,
@@ -48,7 +48,7 @@ function updateUndoButtons() {
 }
 
 function changed({ deferProps = false } = {}) {
-  if (S.selectedId && !byId(S.selectedId)) S.selectedId = null;
+  setSelection(selectedIds());
   redraw();
   if (deferProps) setTimeout(renderPropsKeepFocus, 0);
   else renderProps();
@@ -187,30 +187,38 @@ function onWheel(e) {
 
 // ---------- edit actions ----------
 function deleteSelected() {
-  if (!S.selectedId) return;
+  const ids = selectedIds();
+  if (!ids.length) return;
   checkpoint();
-  deleteItem(S.selectedId);
-  S.selectedId = null;
+  for (const id of ids) deleteItem(id);
+  setSelection([]);
   changed();
 }
 
 function duplicate() {
-  const it = S.selectedId && byId(S.selectedId);
-  if (!it || it.type === 'wall') return;
+  const ids = selectedIds();
+  if (!ids.length) return;
   checkpoint();
-  const copy = { ...it, id: uid() };
   const step = 24;
-  if (it.type === 'door' || it.type === 'window') {
-    copy.pos = it.pos + it.width + 12;
-    clampOpenings(byId(it.wallId));
-  } else if (it.type === 'dim') {
-    copy.x1 += step; copy.x2 += step; copy.y1 += step; copy.y2 += step;
-  } else {
-    copy.x += step; copy.y += step;
+  const idMap = new Map(ids.map((id) => [id, uid()]));
+  const copies = [];
+  for (const id of ids) {
+    const it = byId(id);
+    if (!it) continue;
+    const copy = { ...it, id: idMap.get(id) };
+    if (it.type === 'door' || it.type === 'window') {
+      if (idMap.has(it.wallId)) copy.wallId = idMap.get(it.wallId);
+      else copy.pos = it.pos + it.width + 12;
+    } else if (it.type === 'wall' || it.type === 'dim') {
+      copy.x1 += step; copy.x2 += step; copy.y1 += step; copy.y2 += step;
+    } else {
+      copy.x += step; copy.y += step;
+    }
+    copies.push(copy);
   }
-  S.doc.items.push(copy);
-  if (copy.wallId) clampOpenings(byId(copy.wallId));
-  S.selectedId = copy.id;
+  S.doc.items.push(...copies);
+  for (const c of copies) if (c.wallId && !idMap.has(c.wallId)) clampOpenings(byId(c.wallId));
+  setSelection(copies.map((c) => c.id));
   changed();
 }
 
@@ -236,21 +244,18 @@ function rotateOrFlip(k) {
 }
 
 function nudge(dx, dy) {
-  const it = S.selectedId && byId(S.selectedId);
-  if (!it) return;
+  const ids = selectedIds();
+  if (!ids.length) return;
+  const single = ids.length === 1 && byId(ids[0]);
   checkpoint();
-  if (it.type === 'door' || it.type === 'window') {
-    const w = byId(it.wallId);
+  if (single && (single.type === 'door' || single.type === 'window')) {
+    const w = byId(single.wallId);
     const f = wallFrame(w);
     const along = dx * f.ux + dy * f.uy;
-    it.pos += Math.sign(along || dx + dy) * Math.hypot(dx, dy);
+    single.pos += Math.sign(along || dx + dy) * Math.hypot(dx, dy);
     clampOpenings(w);
-  } else if (it.type === 'wall' || it.type === 'dim') {
-    const conn = it.type === 'wall' ? [...endsAt(it.x1, it.y1, it.id), ...endsAt(it.x2, it.y2, it.id)] : [];
-    it.x1 += dx; it.y1 += dy; it.x2 += dx; it.y2 += dy;
-    for (const c of conn) setEnd(byId(c.id), c.end, c.x + dx, c.y + dy);
   } else {
-    it.x += dx; it.y += dy;
+    translateGroup(ids.map((id) => ({ ...byId(id) })), groupConnected(ids), dx, dy);
   }
   changed();
 }
@@ -260,7 +265,7 @@ function escape() {
   if (S.tool === 'wall' && S.ts.last) { T.endChain(); return; }
   if (S.tool === 'dim' && S.ts.p1) { S.ts = {}; setHud(''); renderOverlay(); return; }
   if (S.tool !== 'select') { setTool('select'); return; }
-  S.selectedId = null;
+  setSelection([]);
   changedSelection();
 }
 
@@ -281,6 +286,12 @@ function onKeyDown(e) {
     else if (k === 'y') { e.preventDefault(); redo(); }
     else if (k === 'd') { e.preventDefault(); duplicate(); }
     else if (k === 's') { e.preventDefault(); saveJson(); }
+    else if (k === 'a') {
+      e.preventDefault();
+      setTool('select');
+      setSelection(S.doc.items.map((i) => i.id));
+      changedSelection();
+    }
     return;
   }
   if (T.acceptsTyping() && !S.drag && (S.typed || /^[0-9.]$/.test(e.key))) {
@@ -297,7 +308,7 @@ function onKeyDown(e) {
   if (e.key === 'Escape') { escape(); return; }
   if (e.key === 'Enter' && S.tool === 'wall') { T.endChain(); return; }
   if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); deleteSelected(); return; }
-  if (e.key.startsWith('Arrow') && S.selectedId) {
+  if (e.key.startsWith('Arrow') && selectedIds().length) {
     e.preventDefault();
     const step = e.shiftKey ? 1 : S.doc.settings.snap || 1;
     const d = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[e.key];
@@ -345,7 +356,7 @@ function saveJson() {
 function replaceDoc(next) {
   checkpoint();
   S.doc = next;
-  S.selectedId = null;
+  setSelection([]);
   setTool('select');
   changed();
   fit();

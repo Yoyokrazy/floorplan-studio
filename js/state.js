@@ -36,6 +36,7 @@ export const S = {
   view: { x: 80, y: 80, zoom: 1.4 },
   tool: 'select',
   selectedId: null,
+  multi: [], // ids when more than one item is selected
   hoverId: null,
   ts: {}, // transient tool state
   drag: null,
@@ -51,6 +52,43 @@ export const uid = () => Math.random().toString(36).slice(2, 10);
 export const byId = (id) => S.doc.items.find((i) => i.id === id);
 export const walls = () => S.doc.items.filter((i) => i.type === 'wall');
 export const units = () => S.doc.settings.units;
+
+export const selectedIds = () => (S.multi.length ? [...S.multi] : S.selectedId ? [S.selectedId] : []);
+export function setSelection(ids) {
+  const live = ids.filter((id) => byId(id));
+  if (live.length > 1) { S.multi = live; S.selectedId = null; } else { S.multi = []; S.selectedId = live[0] || null; }
+}
+
+/** Endpoints of unselected walls joined to selected walls — they stretch when the group moves. */
+export function groupConnected(ids) {
+  const set = new Set(ids);
+  const out = [];
+  for (const id of ids) {
+    const w = byId(id);
+    if (!w || w.type !== 'wall') continue;
+    for (const [x, y] of [[w.x1, w.y1], [w.x2, w.y2]]) out.push(...endsAt(x, y, w.id).filter((c) => !set.has(c.id)));
+  }
+  return out;
+}
+
+/** Moves items (from their original copies) by dx,dy. Openings ride along with their walls. */
+export function translateGroup(orig, connected, dx, dy) {
+  for (const o of orig) {
+    const it = byId(o.id);
+    if (!it) continue;
+    if (it.type === 'wall' || it.type === 'dim') {
+      it.x1 = o.x1 + dx; it.y1 = o.y1 + dy; it.x2 = o.x2 + dx; it.y2 = o.y2 + dy;
+    } else if (typeof o.x === 'number') {
+      it.x = o.x + dx; it.y = o.y + dy;
+    }
+  }
+  for (const c of connected) {
+    const w = byId(c.id);
+    if (!w) continue;
+    setEnd(w, c.end, c.x + dx, c.y + dy);
+    clampOpenings(w);
+  }
+}
 
 export function freshDoc(withSample) {
   const settings = { ...DEFAULT_SETTINGS };

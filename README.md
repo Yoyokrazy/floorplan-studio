@@ -37,9 +37,11 @@ The symbols follow common residential plan conventions:
 | Q / E | Rotate 90°, or flip a door's hinge or swing |
 | Delete | Delete selection |
 | Arrow keys | Nudge |
+| Drag empty space, Shift/⌘-click | Box-select, add to selection (move/delete/duplicate whole rooms) |
+| ⌘/Ctrl + A | Select all |
 | ⌘/Ctrl + Z, ⇧⌘/Ctrl + Z | Undo, redo |
 | ⌘/Ctrl + D | Duplicate |
-| Space + drag, wheel/pinch, 0 | Pan, zoom, fit |
+| Space + drag, right-drag, two-finger scroll, wheel/pinch, 0 | Pan, zoom, fit |
 
 ## Run locally
 
