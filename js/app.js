@@ -114,7 +114,55 @@ function updatePointer(p) {
   els.statusPos.textContent = `${formatLength(p.x, u)}, ${formatLength(p.y, u)}`;
 }
 
+// Two-finger touch: pinch to zoom, drag to pan.
+const touches = new Map();
+let pinch = null;
+
+function touchGeometry() {
+  const r = els.svg.getBoundingClientRect();
+  const [a, b] = [...touches.values()];
+  return {
+    cx: (a.x + b.x) / 2 - r.left,
+    cy: (a.y + b.y) / 2 - r.top,
+    d: Math.max(1, Math.hypot(a.x - b.x, a.y - b.y)),
+  };
+}
+
+function trackTouch(e) {
+  if (e.pointerType !== 'touch') return false;
+  if (e.type === 'pointerdown') touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  else if (e.type === 'pointermove' && touches.has(e.pointerId)) touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  else if (e.type === 'pointerup' || e.type === 'pointercancel') touches.delete(e.pointerId);
+
+  if (e.type === 'pointerdown' && touches.size === 2) {
+    // Abandon any one-finger gesture that just started; keep moves that already happened.
+    if (S.drag?.moved) T.dragEnd();
+    S.drag = null;
+    els.svg.classList.remove('panning');
+    const g = touchGeometry();
+    pinch = { ...g, view: { ...S.view } };
+    return true;
+  }
+  if (pinch && e.type === 'pointermove' && touches.size >= 2) {
+    const g = touchGeometry();
+    const z = Math.min(40, Math.max(0.05, pinch.view.zoom * (g.d / pinch.d)));
+    const wx = (pinch.cx - pinch.view.x) / pinch.view.zoom;
+    const wy = (pinch.cy - pinch.view.y) / pinch.view.zoom;
+    S.view.zoom = z;
+    S.view.x = g.cx - wx * z;
+    S.view.y = g.cy - wy * z;
+    applyView();
+    return true;
+  }
+  if (pinch) {
+    if (touches.size < 2) pinch = touches.size ? pinch : null;
+    return true;
+  }
+  return false;
+}
+
 function onDown(e) {
+  if (trackTouch(e)) return;
   els.svg.focus({ preventScroll: true });
   const p = eventPoint(e);
   updatePointer(p);
@@ -142,6 +190,7 @@ function onDown(e) {
 }
 
 function onMove(e) {
+  if (trackTouch(e)) return;
   const p = eventPoint(e);
   updatePointer(p);
   if (S.drag) { T.dragMove(p); return; }
@@ -167,7 +216,8 @@ function onMove(e) {
   renderOverlay();
 }
 
-function onUp() {
+function onUp(e) {
+  if (trackTouch(e)) return;
   if (S.drag) T.dragEnd();
 }
 
